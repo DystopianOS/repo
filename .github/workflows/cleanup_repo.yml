@@ -1,4 +1,4 @@
-name: "Cleanup Repository"
+name: "Cleanup Repository Artifacts"
 
 on:
   workflow_dispatch:
