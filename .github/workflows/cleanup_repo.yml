@@ -1,0 +1,53 @@
+name: "Cleanup Repository"
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight
+
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Generate GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.DYSTOPIANBOT_APP_ID }}
+          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Cleanup Canceled Workflow Artifacts
+        uses: DCx7C5/actions/gh-workflow-run@v1
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        with:
+          action: 'delete'
+          workflow_status: 'cancelled'
+
+      - name: Cleanup Failed Workflow Artifacts
+        uses: DCx7C5/actions/gh-workflow-run@v1
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        with:
+          action: 'delete'
+          workflow_status: 'failure'
+          keep: '10'
+
+      - name: Cleanup Successful Workflow Artifacts
+        uses: DCx7C5/actions/gh-workflow-run@v1
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        with:
+          action: 'delete'
+          workflow_status: 'success'
+          keep: '25'
