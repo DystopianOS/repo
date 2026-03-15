@@ -28,26 +28,23 @@ jobs:
 
       - name: Cleanup Canceled Workflow Artifacts
         uses: DCx7C5/actions/gh-workflow-run@v1
-        env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token }}
         with:
           action: 'delete'
           workflow_status: 'cancelled'
+          github_token: ${{ steps.app_token.outputs.token }}
 
       - name: Cleanup Failed Workflow Artifacts
         uses: DCx7C5/actions/gh-workflow-run@v1
-        env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token }}
         with:
           action: 'delete'
           workflow_status: 'failure'
           keep: '10'
+          github_token: ${{ steps.app_token.outputs.token }}
 
       - name: Cleanup Successful Workflow Artifacts
         uses: DCx7C5/actions/gh-workflow-run@v1
-        env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token }}
         with:
           action: 'delete'
           workflow_status: 'success'
           keep: '25'
+          github_token: ${{ steps.app_token.outputs.token }}
