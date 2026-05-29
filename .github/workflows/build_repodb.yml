@@ -25,17 +25,14 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app_token
-        continue-on-error: true
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ secrets.DYSTOPIANBOT_CLIENT_ID }}
-          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+        if: false
+        run: echo "token=unused" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: '${{ steps.app_token.outputs.token || github.token }}'
+          token: '${{ github.token }}'
 
       - name: Build AUR database and push to repository
         id: build_aur_db
@@ -45,4 +42,4 @@ jobs:
           gpg_sign: 'true'
           gpg_key_id: ${{ secrets.GPG_PACKAGER_KEY_ID }}
           gpg_passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE }}
-          gh-token: ${{ steps.app_token.outputs.token || github.token }}
+          gh-token: ${{ github.token }}

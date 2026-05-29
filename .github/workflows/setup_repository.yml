@@ -50,17 +50,14 @@ jobs:
 
       - name: Generate GitHub App Token
         id: app_token
-        continue-on-error: true
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ secrets.DYSTOPIANBOT_CLIENT_ID }}
-          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+        if: false
+        run: echo "token=unused" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          token: '${{ steps.app_token.outputs.token || github.token }}'
+          token: '${{ github.token }}'
 
       - name: Import GPG key
         id: gpg_import
@@ -73,7 +70,7 @@ jobs:
           configure-git: 'true'
           initialize-home: 'true'
           preset-passphrase-cache: 'true'
-          gh-token: ${{ steps.app_token.outputs.token || github.token }}
+          gh-token: ${{ github.token }}
           gpg-type: 'private_key'
 
   build-aurdb:
@@ -86,14 +83,11 @@ jobs:
     steps:
       - name: Generate GitHub App Token
         id: app_token
-        continue-on-error: true
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ secrets.DYSTOPIANBOT_CLIENT_ID }}
-          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+        if: false
+        run: echo "token=unused" >> "$GITHUB_OUTPUT"
 
       - name: Checkout AUR database repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -108,7 +102,7 @@ jobs:
           configure-git: 'true'
           initialize-home: 'true'
           preset-passphrase-cache: 'true'
-          gh-token: ${{ steps.app_token.outputs.token || github.token }}
+          gh-token: ${{ github.token }}
           gpg-type: 'private_key'
 
       - name: Build AUR database
@@ -119,5 +113,5 @@ jobs:
           gpg_sign: 'true'
           gpg_key_id: ${{ steps.gpg_import.outputs.fingerprint }}
           gpg_passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
-          gh-token: ${{ steps.app_token.outputs.token || github.token }}
+          gh-token: ${{ github.token }}
           working_directory: ${{ github.workspace }}
