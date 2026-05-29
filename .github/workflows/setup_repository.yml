@@ -120,35 +120,21 @@ jobs:
       - name: Trigger PKGBUILDS keyring bootstrap
         env:
           APP_TOKEN: ${{ steps.app_token.outputs.token }}
-          FALLBACK_TOKEN: ${{ secrets.DYSTOPIAN_PKGBUILDS_DISPATCH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          trigger_dispatch() {
-            local token="$1"
-            GH_TOKEN="$token" gh api \
-              -X POST \
-              repos/DystopianOS/Dystopian-PKGBUILDS/actions/workflows/build_repo.yml/dispatches \
-              -f ref=main \
-              -f inputs[package]=dystopian-keyring \
-              -f inputs[channel]=x86_64
-          }
-
-          if [[ -n "${APP_TOKEN:-}" ]]; then
-            if trigger_dispatch "$APP_TOKEN"; then
-              echo "::notice::Triggered Dystopian-PKGBUILDS build_repo.yml with GitHub App token."
-              exit 0
-            fi
-            echo "::warning::GitHub App token dispatch failed; trying DYSTOPIAN_PKGBUILDS_DISPATCH_TOKEN fallback."
-          fi
-
-          if [[ -z "${FALLBACK_TOKEN:-}" ]]; then
-            echo "::error::DYSTOPIAN_PKGBUILDS_DISPATCH_TOKEN is required when app-based cross-repo dispatch is denied."
+          if [[ -z "${APP_TOKEN:-}" ]]; then
+            echo "::error::GitHub App token generation failed; cannot dispatch PKGBUILDS bootstrap."
             exit 1
           fi
 
-          trigger_dispatch "$FALLBACK_TOKEN"
-          echo "::notice::Triggered Dystopian-PKGBUILDS build_repo.yml with fallback token."
+          GH_TOKEN="$APP_TOKEN" gh api \
+            -X POST \
+            repos/DystopianOS/Dystopian-PKGBUILDS/actions/workflows/build_repo.yml/dispatches \
+            -f ref=main \
+            -f inputs[package]=dystopian-keyring \
+            -f inputs[channel]=x86_64
+          echo "::notice::Triggered Dystopian-PKGBUILDS build_repo.yml with GitHub App token."
 
   build-aurdb:
     needs: [build-keyring, detect-packages]
