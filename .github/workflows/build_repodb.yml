@@ -43,11 +43,33 @@ jobs:
   bootstrap-keyring:
     needs: detect-packages
     if: needs.detect-packages.outputs.has_packages != 'true'
-    uses: DystopianOS/Dystopian-PKGBUILDS/.github/workflows/build_repo.yml@main
-    with:
-      package: dystopian-keyring
-      channel: x86_64
-    secrets: inherit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Generate GitHub App Token
+        id: app_token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.DYSTOPIANBOT_CLIENT_ID }}
+          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+          owner: DystopianOS
+
+      - name: Trigger PKGBUILDS keyring bootstrap
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api \
+            -X POST \
+            repos/DystopianOS/Dystopian-PKGBUILDS/actions/workflows/build_repo.yml/dispatches \
+            -f ref=main \
+            -f inputs[package]=dystopian-keyring \
+            -f inputs[channel]=x86_64
+          echo "::notice::Triggered Dystopian-PKGBUILDS build_repo.yml for dystopian-keyring on channel x86_64."
 
   build-aur-db:
     needs: detect-packages
