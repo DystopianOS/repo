@@ -49,10 +49,43 @@ jobs:
           echo "source_repo=${{ github.event.client_payload.source_repo || 'manual' }}"
 
       - name: Build AUR database and push
-        uses: DCx7C5/actions/aur-build-repodb@v1
+        uses: DCx7C5/actions/arch-run-cmd@v1
         with:
-          database_name: ${{ secrets.AUR_DB_NAME || secrets.AUR_DATABASE_NAME }}
-          gpg_sign: "true"
-          gpg_key_id: ${{ secrets.GPG_PACKAGER_KEY_ID }}
-          gpg_passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE }}
-          github_token: ${{ steps.app_token.outputs.token }}
+          run-with-sudo: "false"
+          enable-ccache: "false"
+          preset-passphrase-cache: "true"
+          gh-token: ${{ steps.app_token.outputs.token }}
+          gpg-key-id: ${{ secrets.GPG_PACKAGER_KEY_ID }}
+          gpg-passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE }}
+          command: |
+            set -euo pipefail
+
+            shopt -s nullglob
+            pkgs=(*.pkg.tar.zst)
+            if (( ${#pkgs[@]} == 0 )); then
+              echo "::error::No package files matching '*.pkg.tar.zst' found in repository root." >&2
+              exit 1
+            fi
+
+            db_name="${{ secrets.AUR_DB_NAME || secrets.AUR_DATABASE_NAME }}"
+            if [[ -z "${db_name}" ]]; then
+              echo "::error::AUR_DB_NAME or AUR_DATABASE_NAME secret must be set." >&2
+              exit 1
+            fi
+
+            repo-add --sign --new --remove "${db_name}.db.tar.gz" "${pkgs[@]}"
+
+      - name: Commit and push updated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No repository database changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(repodb): rebuild for ${{ github.event.client_payload.package || inputs.package || 'unknown' }}"
+          git push origin HEAD:${{ github.ref_name }}
