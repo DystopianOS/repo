@@ -73,8 +73,44 @@ jobs:
           gh-token: ${{ github.token }}
           gpg-type: 'private_key'
 
+  detect-packages:
+    runs-on: ubuntu-latest
+    outputs:
+      has_packages: ${{ steps.detect.outputs.has_packages }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect package artifacts in x86_64
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p x86_64
+          shopt -s nullglob
+          pkgs=(x86_64/*.pkg.tar.zst)
+          if (( ${#pkgs[@]} > 0 )); then
+            echo "has_packages=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Found ${#pkgs[@]} package artifact(s) in x86_64."
+          else
+            echo "has_packages=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package artifacts in x86_64; bootstrapping keyring from PKGBUILDS."
+          fi
+
+  bootstrap-keyring:
+    needs: detect-packages
+    if: needs.detect-packages.outputs.has_packages != 'true'
+    uses: DystopianOS/Dystopian-PKGBUILDS/.github/workflows/build_repo.yml@main
+    with:
+      package: dystopian-keyring
+      channel: x86_64
+    secrets: inherit
+
   build-aurdb:
-    needs: build-keyring
+    needs: [build-keyring, detect-packages]
+    if: needs.detect-packages.outputs.has_packages == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -97,46 +133,7 @@ jobs:
           fetch-depth: 0
           token: '${{ steps.app_token.outputs.token || github.token }}'
 
-      - name: Detect package artifacts in x86_64
-        id: detect_pkgs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p x86_64
-          shopt -s nullglob
-          pkgs=(x86_64/*.pkg.tar.zst)
-          if (( ${#pkgs[@]} > 0 )); then
-            echo "has_packages=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Found ${#pkgs[@]} package artifact(s) in x86_64."
-          else
-            echo "has_packages=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No package artifacts in x86_64; triggering PKGBUILDS keyring bootstrap."
-          fi
-
-      - name: Trigger PKGBUILDS keyring bootstrap
-        if: steps.detect_pkgs.outputs.has_packages != 'true'
-        env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api \
-            -X POST \
-            repos/DystopianOS/Dystopian-PKGBUILDS/actions/workflows/build_repo.yml/dispatches \
-            -f ref=main \
-            -f inputs[package]=dystopian-keyring \
-            -f inputs[channel]=x86_64
-          echo "::notice::Triggered Dystopian-PKGBUILDS build_repo.yml for dystopian-keyring on channel x86_64."
-
-      - name: Stop after bootstrap dispatch
-        if: steps.detect_pkgs.outputs.has_packages != 'true'
-        shell: bash
-        run: |
-          echo "::notice::Repository is empty; waiting for PKGBUILDS output to publish packages under x86_64 before rebuilding repodb."
-          exit 0
-
       - name: Import GPG key
-        if: steps.detect_pkgs.outputs.has_packages == 'true'
         id: gpg_import
         uses: DCx7C5/actions/gpg-import@v1
         with:
@@ -151,7 +148,6 @@ jobs:
           gpg-type: 'private_key'
 
       - name: Build AUR database
-        if: steps.detect_pkgs.outputs.has_packages == 'true'
         id: build_aurdb
         uses: DCx7C5/actions/aur-build-repodb@v1
         with:
