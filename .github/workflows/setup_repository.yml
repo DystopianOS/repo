@@ -7,20 +7,10 @@ on:
         description: "Trigger for rebuilding the repository database (e.g., 'init', 'add', 'update', 'delete')"
         required: true
         type: string
-      aur_db_owner:
-        description: "Owner of the AUR database repository to update"
-        required: false
-        default: ${{ secrets.AUR_DB_REPO_OWNER || github.repository_owner }}
-        type: string
-      aur_db_repo_name:
-        description: "Name of the AUR database repository to update"
-        required: false
-        default: ${{ secrets.AUR_DB_REPO_NAME }}
-        type: string
       aur_db_repository:
         description: "Full repository name (owner/repo) of the AUR database repository to update"
         required: false
-        default: ${{ inputs.aur_db_owner || secrets.AUR_DB_REPO_OWNER }}/${{ inputs.aur_db_repo_name || secrets.AUR_DB_REPO_NAME || 'repo' }}
+        default: "DystopianOS/repo"
         type: string
   workflow_dispatch:
     inputs:
@@ -32,7 +22,7 @@ on:
       aur_db_repository:
         description: "Full repository name (owner/repo) of the AUR database repository to update"
         required: false
-        default: ${{ inputs.aur_db_owner || secrets.AUR_DB_REPO_OWNER || github.repository_owner }}/${{ inputs.aur_db_repo_name || secrets.AUR_DB_REPO_NAME || 'repo' }}
+        default: "DystopianOS/repo"
         type: string
 
 
