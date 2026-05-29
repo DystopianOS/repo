@@ -66,15 +66,15 @@ jobs:
         id: gpg_import
         uses: DCx7C5/actions/gpg-import@v1
         with:
-          method: 'inline'
-          gpg_key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
-          gpg_pass: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
-          delete_after_import: 'true'
-          configure_git: 'true'
-          setup_home: 'true'
-          preset_pass: 'true'
-          github_token: ${{ steps.app_token.outputs.token || github.token }}
-          gpg_type: 'private_key'
+          import-method: 'inline'
+          key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
+          gpg-pass: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
+          delete-after-import: 'true'
+          configure-git: 'true'
+          initialize-home: 'true'
+          preset-passphrase-cache: 'true'
+          gh-token: ${{ steps.app_token.outputs.token || github.token }}
+          gpg-type: 'private_key'
 
   build-aurdb:
     runs-on: ubuntu-latest
@@ -101,15 +101,15 @@ jobs:
         id: gpg_import
         uses: DCx7C5/actions/gpg-import@v1
         with:
-          method: 'inline'
-          gpg_key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
-          gpg_pass: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
-          delete_after_import: 'true'
-          configure_git: 'true'
-          setup_home: 'true'
-          preset_pass: 'true'
-          github_token: ${{ steps.app_token.outputs.token || github.token }}
-          gpg_type: 'private_key'
+          import-method: 'inline'
+          key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
+          gpg-pass: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
+          delete-after-import: 'true'
+          configure-git: 'true'
+          initialize-home: 'true'
+          preset-passphrase-cache: 'true'
+          gh-token: ${{ steps.app_token.outputs.token || github.token }}
+          gpg-type: 'private_key'
 
       - name: Build AUR database
         id: build_aurdb
