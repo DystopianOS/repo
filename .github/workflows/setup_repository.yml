@@ -35,7 +35,7 @@ jobs:
       group: "build-keyring"
       cancel-in-progress: true
     outputs:
-      gpg_key_id: ${{ steps.gpg_import.outputs.gpg_key_id }}
+      gpg_key_id: ${{ steps.gpg_import.outputs.fingerprint }}
     steps:
       - id: validate_secrets
         run: |
@@ -117,7 +117,7 @@ jobs:
         with:
           database_name: ${{ secrets.AUR_DB_NAME }}
           gpg_sign: 'true'
-          gpg_key_id: ${{ steps.gpg_import.outputs.gpg_key_id }}
+          gpg_key_id: ${{ steps.gpg_import.outputs.fingerprint }}
           gpg_passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
           gh-token: ${{ steps.app_token.outputs.token || github.token }}
           working_directory: ${{ github.workspace }}
