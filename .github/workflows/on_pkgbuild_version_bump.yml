@@ -85,3 +85,21 @@ jobs:
           git add -A
           git commit -m "chore(repodb): rebuild for ${{ github.event.client_payload.package || inputs.package || 'unknown' }}"
           git push origin HEAD:${{ github.ref_name }}
+
+      - name: Telegram notification
+        if: >-
+          always() &&
+          (secrets.TG_BOT_TOKEN != '' || secrets.TELEGRAM_BOT_TOKEN != '') &&
+          (secrets.TG_CHAT_ID != '' || secrets.TELEGRAM_CHAT_ID != '')
+        uses: DCx7C5/actions/tg-notify@v1
+        with:
+          tg-token: ${{ secrets.TG_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TG_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          parse-mode: "HTML"
+          message: >-
+            🗃️ <b>RepoDB rebuild</b>%0A
+            Repo: <code>${{ github.repository }}</code>%0A
+            Package: <code>${{ github.event.client_payload.package || inputs.package || 'unknown' }}</code>%0A
+            Version: <code>${{ github.event.client_payload.version || inputs.version || 'unknown' }}</code>%0A
+            Result: <code>${{ job.status }}</code>%0A
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
