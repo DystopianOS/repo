@@ -89,7 +89,7 @@ jobs:
           echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
 
       - name: Build and sign package in Arch container
-        uses: ./.github/actions/arch-run-cmd
+        uses: DCx7C5/actions/run-arch-cmd@v1
         with:
           run-with-sudo: "true"
           enable-ccache: "true"
