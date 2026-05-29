@@ -1,0 +1,58 @@
+name: "Rebuild RepoDB on PKGBUILD Version Bump"
+
+on:
+  repository_dispatch:
+    types:
+      - pkgbuild-version-bump
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package that was bumped in Dystopian-PKGBUILDS"
+        required: false
+        type: string
+      version:
+        description: "New package version (pkgver-pkgrel)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: "repodb-on-pkgbuild-version-bump"
+  cancel-in-progress: true
+
+jobs:
+  rebuild-repodb:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.DYSTOPIANBOT_APP_ID }}
+          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app_token.outputs.token }}
+
+      - name: Show triggering payload
+        shell: bash
+        run: |
+          echo "event_name=${GITHUB_EVENT_NAME}"
+          echo "package=${{ github.event.client_payload.package || inputs.package || 'unknown' }}"
+          echo "version=${{ github.event.client_payload.version || inputs.version || 'unknown' }}"
+          echo "source_repo=${{ github.event.client_payload.source_repo || 'manual' }}"
+
+      - name: Build AUR database and push
+        uses: DCx7C5/actions/aur-build-repodb@v1
+        with:
+          database_name: ${{ secrets.AUR_DB_NAME || secrets.AUR_DATABASE_NAME }}
+          gpg_sign: "true"
+          gpg_key_id: ${{ secrets.GPG_PACKAGER_KEY_ID }}
+          gpg_passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE }}
+          github_token: ${{ steps.app_token.outputs.token }}
