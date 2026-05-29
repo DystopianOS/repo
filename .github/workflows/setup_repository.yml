@@ -63,7 +63,7 @@ jobs:
 
       - name: Import GPG key
         id: gpg_import
-        uses: ./gpg-import
+        uses: DCx7C5/actions/gpg-import@v1
         with:
           method: 'inline'
           gpg_key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
@@ -97,7 +97,7 @@ jobs:
 
       - name: Import GPG key
         id: gpg_import
-        uses: ./gpg-import
+        uses: DCx7C5/actions/gpg-import@v1
         with:
           method: 'inline'
           gpg_key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
