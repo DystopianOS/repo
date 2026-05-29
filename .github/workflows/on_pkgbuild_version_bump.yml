@@ -1,4 +1,4 @@
-name: "Build, Sign, and Release Package"
+name: Build Sign and Release Package
 
 on:
   repository_dispatch:
@@ -7,22 +7,18 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: "Package name from Dystopian-PKGBUILDs"
+        description: Package name from Dystopian-PKGBUILDs
         required: true
-        type: string
       version:
-        description: "Package version (pkgver-pkgrel)"
+        description: Package version (pkgver-pkgrel)
         required: false
-        type: string
       channel:
-        description: "Release channel tag (e.g. core, extra)"
+        description: Release channel tag (e.g. core, extra)
         required: false
-        default: "core"
-        type: string
+        default: core
       source_sha:
-        description: "Optional PKGBUILDS commit SHA"
+        description: Optional PKGBUILDS commit SHA
         required: false
-        type: string
 
 permissions:
   contents: write
@@ -43,8 +39,6 @@ jobs:
           source_sha="$(jq -r '.client_payload.source_sha // .inputs.source_sha // empty' "$GITHUB_EVENT_PATH")"
 
           [[ -n "$pkg" ]] || { echo "::error::package is required"; exit 1; }
-          [[ -n "$channel" ]] || channel="core"
-
           echo "package=$pkg" >> "$GITHUB_OUTPUT"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
@@ -107,7 +101,6 @@ jobs:
           command: |
             set -euo pipefail
             cd "_pkgbuilds/${{ steps.payload.outputs.package }}"
-
             makepkg --syncdeps --cleanbuild --noconfirm --sign --key "${GPG_KEY_ID}"
 
       - name: Collect release assets
@@ -117,7 +110,6 @@ jobs:
           set -euo pipefail
           pkg_dir="_pkgbuilds/${{ steps.payload.outputs.package }}"
           mkdir -p release-assets
-
           shopt -s nullglob
           files=(
             "$pkg_dir"/*.pkg.tar.zst
@@ -131,19 +123,16 @@ jobs:
           fi
           cp -f "${files[@]}" release-assets/
 
-          if [[ -z "${{ steps.payload.outputs.version }}" ]]; then
+          version="${{ steps.payload.outputs.version }}"
+          if [[ -z "$version" ]]; then
             pkgver="$(awk -F= '/^pkgver=/{print $2; exit}' "$pkg_dir/PKGBUILD")"
             pkgrel="$(awk -F= '/^pkgrel=/{print $2; exit}' "$pkg_dir/PKGBUILD")"
             version="${pkgver}-${pkgrel}"
-          else
-            version="${{ steps.payload.outputs.version }}"
           fi
-
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          tag="${{ steps.payload.outputs.channel }}/${{ steps.payload.outputs.package }}/${version}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ steps.payload.outputs.channel }}/${{ steps.payload.outputs.package }}/${version}" >> "$GITHUB_OUTPUT"
 
-      - name: Create channel/package release
+      - name: Create channel package release
         uses: DCx7C5/actions/gh-create-release@v1
         with:
           gh-token: ${{ steps.app_token.outputs.token }}
@@ -161,23 +150,3 @@ jobs:
             release-assets/*.src.tar.gz
             release-assets/*.src.tar.gz.sig
           fail-if-exists: "false"
-
-      - name: Telegram notification
-        if: >-
-          always() &&
-          (secrets.TG_BOT_TOKEN != '' || secrets.TELEGRAM_BOT_TOKEN != '') &&
-          (secrets.TG_CHAT_ID != '' || secrets.TELEGRAM_CHAT_ID != '')
-        uses: DCx7C5/actions/tg-notify@v1
-        with:
-          tg-token: ${{ secrets.TG_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
-          chat-id: ${{ secrets.TG_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
-          parse-mode: "HTML"
-          message: >-
-            🔐 <b>Package release pipeline</b>%0A
-            Repo: <code>${{ github.repository }}</code>%0A
-            Channel: <code>${{ steps.payload.outputs.channel }}</code>%0A
-            Package: <code>${{ steps.payload.outputs.package }}</code>%0A
-            Version: <code>${{ steps.assets.outputs.version }}</code>%0A
-            Tag: <code>${{ steps.assets.outputs.tag }}</code>%0A
-            Result: <code>${{ job.status }}</code>%0A
-            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
