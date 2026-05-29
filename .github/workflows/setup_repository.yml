@@ -115,6 +115,7 @@ jobs:
           client-id: ${{ secrets.DYSTOPIANBOT_CLIENT_ID }}
           private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
           owner: DystopianOS
+          repositories: Dystopian-PKGBUILDS
 
       - name: Trigger PKGBUILDS keyring bootstrap
         env:
