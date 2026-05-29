@@ -29,7 +29,7 @@ permissions:
   actions: write
 
 concurrency:
-  group: package-release-${{ github.event.client_payload.package || inputs.package || 'unknown' }}
+  group: package-release-${{ github.event.client_payload.package || github.event.inputs.package || 'unknown' }}
   cancel-in-progress: true
 
 jobs:
@@ -41,10 +41,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pkg="${{ github.event.client_payload.package || inputs.package }}"
-          ver="${{ github.event.client_payload.version || inputs.version }}"
-          channel="${{ github.event.client_payload.channel || inputs.channel || 'core' }}"
-          source_sha="${{ github.event.client_payload.source_sha || inputs.source_sha }}"
+          pkg="${{ github.event.client_payload.package || github.event.inputs.package }}"
+          ver="${{ github.event.client_payload.version || github.event.inputs.version }}"
+          channel="${{ github.event.client_payload.channel || github.event.inputs.channel || 'core' }}"
+          source_sha="${{ github.event.client_payload.source_sha || github.event.inputs.source_sha }}"
 
           [[ -n "$pkg" ]] || { echo "::error::package is required"; exit 1; }
           [[ -n "$channel" ]] || channel="core"
