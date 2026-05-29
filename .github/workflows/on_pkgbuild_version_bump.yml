@@ -59,8 +59,8 @@ jobs:
           shopt -s nullglob
           pkgs=(*.pkg.tar.zst)
           if (( ${#pkgs[@]} == 0 )); then
-            echo "::error::No package files matching '*.pkg.tar.zst' found in repository root." >&2
-            exit 1
+            echo "::warning::No package files matching '*.pkg.tar.zst' found in repository root; skipping rebuild."
+            exit 0
           fi
 
           db_name="${{ secrets.AUR_DB_NAME || secrets.AUR_DATABASE_NAME }}"
