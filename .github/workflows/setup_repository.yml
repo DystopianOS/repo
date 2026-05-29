@@ -1,0 +1,131 @@
+name: "Setup Database Repository"
+
+on:
+  workflow_call:
+    inputs:
+      trigger:
+        description: "Trigger for rebuilding the repository database (e.g., 'init', 'add', 'update', 'delete')"
+        required: true
+        type: string
+      aur_db_owner:
+        description: "Owner of the AUR database repository to update"
+        required: false
+        default: ${{ secrets.AUR_DB_REPO_OWNER || github.repository_owner }}
+        type: string
+      aur_db_repo_name:
+        description: "Name of the AUR database repository to update"
+        required: false
+        default: ${{ secrets.AUR_DB_REPO_NAME }}
+        type: string
+      aur_db_repository:
+        description: "Full repository name (owner/repo) of the AUR database repository to update"
+        required: false
+        default: ${{ inputs.aur_db_owner || secrets.AUR_DB_REPO_OWNER }}/${{ inputs.aur_db_repo_name || secrets.AUR_DB_REPO_NAME || 'repo' }}
+        type: string
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: "Trigger for rebuilding the repository database (e.g., 'init', 'add', 'update', 'delete')"
+        required: true
+        default: 'manual'
+        type: string
+      aur_db_repository:
+        description: "Full repository name (owner/repo) of the AUR database repository to update"
+        required: false
+        default: ${{ inputs.aur_db_owner || secrets.AUR_DB_REPO_OWNER || github.repository_owner }}/${{ inputs.aur_db_repo_name || secrets.AUR_DB_REPO_NAME || 'repo' }}
+        type: string
+
+
+jobs:
+  build-keyring:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: "build-keyring"
+      cancel-in-progress: true
+    outputs:
+      gpg_key_id: ${{ steps.gpg_import.outputs.gpg_key_id }}
+    steps:
+      - id: validate_secrets
+        run: |
+          if [[ -z "${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}" ]]; then
+            echo "GPG_PACKAGER_PRIVATE_KEY secret is not set. Please add it to the repository secrets."
+            exit 1
+          fi
+          if [[ -z "${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}" ]]; then
+            echo "GPG_PACKAGER_PASSPHRASE secret is not set. Please add it to the repository secrets."
+            exit 1
+          fi
+
+      - name: Generate GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.DYSTOPIANBOT_APP_ID }}
+          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: '${{ steps.app_token.outputs.token }}'
+
+      - name: Import GPG key
+        id: gpg_import
+        uses: ./gpg-import
+        with:
+          method: 'inline'
+          gpg_key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
+          gpg_pass: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
+          delete_after_import: 'true'
+          configure_git: 'true'
+          setup_home: 'true'
+          preset_pass: 'true'
+          github_token: ${{ steps.app_token.outputs.token }}
+          gpg_type: 'private_key'
+
+  build-aurdb:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: "build-aurdb"
+      cancel-in-progress: true
+    steps:
+      - name: Generate GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.DYSTOPIANBOT_APP_ID }}
+          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+
+      - name: Checkout AUR database repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Import GPG key
+        id: gpg_import
+        uses: ./gpg-import
+        with:
+          method: 'inline'
+          gpg_key: ${{ secrets.GPG_PACKAGER_PRIVATE_KEY || secrets.GPG_PRIVATE_KEY }}
+          gpg_pass: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
+          delete_after_import: 'true'
+          configure_git: 'true'
+          setup_home: 'true'
+          preset_pass: 'true'
+          github_token: ${{ steps.app_token.outputs.token }}
+          gpg_type: 'private_key'
+
+      - name: Build AUR database
+        id: build_aurdb
+        uses: DCx7C5/actions/aur-build-repodb@v1
+        with:
+          database_name: ${{ secrets.AUR_DB_NAME }}
+          gpg_sign: 'true'
+          gpg_key_id: ${{ steps.gpg_import.outputs.gpg_key_id }}
+          gpg_passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE || secrets.GPG_PASSPHRASE }}
+          github_token: ${{ steps.app_token.outputs.token }}
+          working_directory: ${{ github.workspace }}

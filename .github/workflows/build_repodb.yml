@@ -1,0 +1,47 @@
+name: "Build AUR Database in GitHub Repository"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pkg_name:
+        description: "Target package name that triggered the database rebuild (optional, used for logging purposes)"
+        required: false
+        type: string
+      remote_pkg_name:
+        description: "Remote package name that triggered the database rebuild (optional, used for logging purposes)"
+        required: false
+        type: string
+
+
+jobs:
+  build-aur-db:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    concurrency:
+      group: "build-aur-db"
+      cancel-in-progress: true
+    steps:
+      - name: Generate GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.DYSTOPIANBOT_APP_ID }}
+          private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: '${{ steps.app_token.outputs.token }}'
+
+      - name: Build AUR database and push to repository
+        id: build_aur_db
+        uses: DCx7C5/actions/aur-build-repodb@v1
+        with:
+          database_name: ${{ secrets.AUR_DB_NAME }}
+          gpg_sign: 'true'
+          gpg_key_id: ${{ secrets.GPG_PACKAGER_KEY_ID }}
+          gpg_passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE }}
+          github_token: ${{ steps.app_token.outputs.token }}
