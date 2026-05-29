@@ -1,0 +1,36 @@
+name: Telegram Workflow Notifications
+
+on:
+  workflow_run:
+    workflows:
+      - "Build AUR Database in GitHub Repository"
+      - "Cleanup Repository Artifacts"
+      - "Build Sign and Release Package"
+      - "Setup Database Repository"
+    types:
+      - completed
+
+jobs:
+  notify-telegram:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets are not configured."
+            exit 1
+          fi
+
+          message="[$REPO] Workflow '$WORKFLOW' finished with: $CONCLUSION on branch '$BRANCH'. $URL"
+          curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}"
