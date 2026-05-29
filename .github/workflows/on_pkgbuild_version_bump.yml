@@ -1,17 +1,26 @@
-name: "Rebuild RepoDB on PKGBUILD Version Bump"
+name: "Build, Sign, and Release Package"
 
 on:
   repository_dispatch:
     types:
-      - pkgbuild-version-bump
+      - pkgbuild-release-request
   workflow_dispatch:
     inputs:
       package:
-        description: "Package that was bumped in Dystopian-PKGBUILDS"
-        required: false
+        description: "Package name from Dystopian-PKGBUILDs"
+        required: true
         type: string
       version:
-        description: "New package version (pkgver-pkgrel)"
+        description: "Package version (pkgver-pkgrel)"
+        required: false
+        type: string
+      channel:
+        description: "Release channel tag (e.g. core, extra)"
+        required: false
+        default: "core"
+        type: string
+      source_sha:
+        description: "Optional PKGBUILDS commit SHA"
         required: false
         type: string
 
@@ -20,71 +29,142 @@ permissions:
   actions: write
 
 concurrency:
-  group: "repodb-on-pkgbuild-version-bump"
+  group: package-release-${{ github.event.client_payload.package || inputs.package || 'unknown' }}
   cancel-in-progress: true
 
 jobs:
-  rebuild-repodb:
+  build-sign-release:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve payload
+        id: payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg="${{ github.event.client_payload.package || inputs.package }}"
+          ver="${{ github.event.client_payload.version || inputs.version }}"
+          channel="${{ github.event.client_payload.channel || inputs.channel || 'core' }}"
+          source_sha="${{ github.event.client_payload.source_sha || inputs.source_sha }}"
+
+          [[ -n "$pkg" ]] || { echo "::error::package is required"; exit 1; }
+          [[ -n "$channel" ]] || channel="core"
+
+          echo "package=$pkg" >> "$GITHUB_OUTPUT"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
       - name: Generate GitHub App Token
         id: app_token
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.DYSTOPIANBOT_APP_ID }}
           private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
+          owner: DystopianOS
 
-      - name: Checkout repository
+      - name: Checkout release repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ steps.app_token.outputs.token }}
 
-      - name: Show triggering payload
+      - name: Clone PKGBUILDS source repository
         shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
-          echo "event_name=${GITHUB_EVENT_NAME}"
-          echo "package=${{ github.event.client_payload.package || inputs.package || 'unknown' }}"
-          echo "version=${{ github.event.client_payload.version || inputs.version || 'unknown' }}"
-          echo "source_repo=${{ github.event.client_payload.source_repo || 'manual' }}"
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/DystopianOS/Dystopian-PKGBUILDs.git" _pkgbuilds
+          if [[ -n "${{ steps.payload.outputs.source_sha }}" ]]; then
+            git -C _pkgbuilds checkout "${{ steps.payload.outputs.source_sha }}"
+          fi
+          [[ -f "_pkgbuilds/${{ steps.payload.outputs.package }}/PKGBUILD" ]] || {
+            echo "::error::PKGBUILD not found for package ${{ steps.payload.outputs.package }}"
+            exit 1
+          }
 
-      - name: Build repository database
+      - name: Import GPG packager key
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/.gnupg"
+          chmod 700 "$GITHUB_WORKSPACE/.gnupg"
+          export GNUPGHOME="$GITHUB_WORKSPACE/.gnupg"
+          printf '%s' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          key_id="${{ secrets.GPG_PACKAGER_KEY_ID }}"
+          if [[ -z "$key_id" ]]; then
+            key_id="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/ {print $5; exit}')"
+          fi
+          [[ -n "$key_id" ]] || { echo "::error::No secret key available for signing"; exit 1; }
+          echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
 
-          sudo apt-get update
-          sudo apt-get install -y pacman-package-manager
+      - name: Build and sign package in Arch container
+        uses: DCx7C5/actions/arch-run-cmd@v1
+        with:
+          run-with-sudo: "true"
+          enable-ccache: "true"
+          gh-token: ${{ steps.app_token.outputs.token }}
+          gpg-home: ${{ format('{0}/.gnupg', github.workspace) }}
+          gpg-key-id: ${{ env.GPG_KEY_ID }}
+          gpg-passphrase: ${{ secrets.GPG_PACKAGER_PASSPHRASE }}
+          preset-passphrase-cache: "true"
+          command: |
+            set -euo pipefail
+            cd "_pkgbuilds/${{ steps.payload.outputs.package }}"
+
+            makepkg --syncdeps --cleanbuild --noconfirm --sign --key "${GPG_KEY_ID}"
+
+      - name: Collect release assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          pkg_dir="_pkgbuilds/${{ steps.payload.outputs.package }}"
+          mkdir -p release-assets
 
           shopt -s nullglob
-          pkgs=(*.pkg.tar.zst)
-          if (( ${#pkgs[@]} == 0 )); then
-            echo "::warning::No package files matching '*.pkg.tar.zst' found in repository root; skipping rebuild."
-            exit 0
-          fi
-
-          db_name="${{ secrets.AUR_DB_NAME || secrets.AUR_DATABASE_NAME }}"
-          if [[ -z "${db_name}" ]]; then
-            echo "::error::AUR_DB_NAME or AUR_DATABASE_NAME secret must be set." >&2
+          files=(
+            "$pkg_dir"/*.pkg.tar.zst
+            "$pkg_dir"/*.pkg.tar.zst.sig
+            "$pkg_dir"/*.src.tar.gz
+            "$pkg_dir"/*.src.tar.gz.sig
+          )
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::No build artifacts found in $pkg_dir"
             exit 1
           fi
+          cp -f "${files[@]}" release-assets/
 
-          repo-add --new --remove "${db_name}.db.tar.gz" "${pkgs[@]}"
-
-      - name: Commit and push updated database
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet; then
-            echo "No repository database changes to commit."
-            exit 0
+          if [[ -z "${{ steps.payload.outputs.version }}" ]]; then
+            pkgver="$(awk -F= '/^pkgver=/{print $2; exit}' "$pkg_dir/PKGBUILD")"
+            pkgrel="$(awk -F= '/^pkgrel=/{print $2; exit}' "$pkg_dir/PKGBUILD")"
+            version="${pkgver}-${pkgrel}"
+          else
+            version="${{ steps.payload.outputs.version }}"
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore(repodb): rebuild for ${{ github.event.client_payload.package || inputs.package || 'unknown' }}"
-          git push origin HEAD:${{ github.ref_name }}
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          tag="${{ steps.payload.outputs.channel }}/${{ steps.payload.outputs.package }}/${version}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create channel/package release
+        uses: DCx7C5/actions/gh-create-release@v1
+        with:
+          gh-token: ${{ steps.app_token.outputs.token }}
+          release-tag: ${{ steps.assets.outputs.tag }}
+          release-name: ${{ steps.payload.outputs.channel }}/${{ steps.payload.outputs.package }} ${{ steps.assets.outputs.version }}
+          generate-notes: "false"
+          release-body: |
+            Channel: `${{ steps.payload.outputs.channel }}`
+            Package: `${{ steps.payload.outputs.package }}`
+            Version: `${{ steps.assets.outputs.version }}`
+            Source SHA: `${{ steps.payload.outputs.source_sha || 'n/a' }}`
+          assets: |
+            release-assets/*.pkg.tar.zst
+            release-assets/*.pkg.tar.zst.sig
+            release-assets/*.src.tar.gz
+            release-assets/*.src.tar.gz.sig
+          fail-if-exists: "false"
 
       - name: Telegram notification
         if: >-
@@ -97,9 +177,11 @@ jobs:
           chat-id: ${{ secrets.TG_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
           parse-mode: "HTML"
           message: >-
-            🗃️ <b>RepoDB rebuild</b>%0A
+            🔐 <b>Package release pipeline</b>%0A
             Repo: <code>${{ github.repository }}</code>%0A
-            Package: <code>${{ github.event.client_payload.package || inputs.package || 'unknown' }}</code>%0A
-            Version: <code>${{ github.event.client_payload.version || inputs.version || 'unknown' }}</code>%0A
+            Channel: <code>${{ steps.payload.outputs.channel }}</code>%0A
+            Package: <code>${{ steps.payload.outputs.package }}</code>%0A
+            Version: <code>${{ steps.assets.outputs.version || steps.payload.outputs.version || 'unknown' }}</code>%0A
+            Tag: <code>${{ steps.assets.outputs.tag || 'n/a' }}</code>%0A
             Result: <code>${{ job.status }}</code>%0A
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
