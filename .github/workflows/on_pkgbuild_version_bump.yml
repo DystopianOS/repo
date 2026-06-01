@@ -119,7 +119,7 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.app_token.outputs.token }}
 
-      - name: Verify bootstrap release exists
+      - name: Verify bootstrap packages exist
         shell: bash
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
@@ -140,7 +140,7 @@ jobs:
           done
 
           if [[ "$has_keyring" != true || "$has_repo" != true || "$has_db" != true ]]; then
-            echo "::error::Bootstrap release is incomplete; require dystopian-keyring, dystopian-repo, and repo database assets before syncing packages."
+            echo "::error::No package sync until dystopian-keyring and dystopian-repo are built and published with the repo database."
             exit 1
           fi
 

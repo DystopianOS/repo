@@ -5,13 +5,14 @@
 This repository is an Arch/AUR repository automation hub, not a package source tree. The tracked logic lives in GitHub Actions workflows that:
 
 - validate the bootstrap repo release before accepting new packages
+- do not sync packages until `dystopian-keyring` and `dystopian-repo` exist in the bootstrap release
 - sign built packages and rebuild the repository database
 - notify `Dystopian-PKGBUILDS` when `dystopian-repo` is updated
 - clean up workflow artifacts on a schedule
 
 ## Workflow architecture
 
-- - `on_pkgbuild_version_bump.yml` is the primary publish workflow: it only proceeds after verifying the bootstrap release contains `dystopian-repo`, `dystopian-keyring`, and the repo database, then downloads a built package from `Dystopian-PKGBUILDS`, signs it, updates the repo database, and notifies PKGBUILDS for `dystopian-repo` signature sync.
+- `on_pkgbuild_version_bump.yml` is the primary publish workflow: it only proceeds after verifying the bootstrap release contains `dystopian-repo`, `dystopian-keyring`, and the repo database, then downloads a built package from `Dystopian-PKGBUILDS`, signs it, updates the repo database, and notifies PKGBUILDS for `dystopian-repo` signature sync.
 - `cleanup_repo.yml` is the maintenance workflow that deletes cancelled, failed, and older successful workflow artifacts.
 
 ## Commands

@@ -4,7 +4,7 @@ flowchart TD
 
   B --> D[create GitHub App token]
   D --> E[checkout repository]
-  E --> F[verify bootstrap release has dystopian-repo, dystopian-keyring, and db]
+  E --> F[gate on bootstrap release containing dystopian-keyring and dystopian-repo]
   F --> G[resolve package asset from PKGBUILDS release]
   G --> H[download package into x86_64]
   H --> I[import GPG packager key]
