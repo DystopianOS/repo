@@ -1,0 +1,9 @@
+```mermaid
+flowchart TD
+  A[workflow_dispatch / schedule] --> B[cleanup]
+  B --> C[create GitHub App token]
+  C --> D[checkout repository]
+  D --> E[delete cancelled workflow artifacts]
+  E --> F[delete failed workflow artifacts]
+  F --> G[delete older successful workflow artifacts]
+```
