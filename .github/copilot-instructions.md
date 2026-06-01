@@ -11,7 +11,7 @@ This repository is an Arch/AUR repository automation hub, not a package source t
 
 ## Workflow architecture
 
-- `on_pkgbuild_version_bump.yml` is the primary publish workflow: it only proceeds after verifying the bootstrap release contains `dystopian-repo`, `dystopian-keyring`, and the repo database, then downloads a built package from `Dystopian-PKGBUILDS`, signs it, updates the repo database, and notifies PKGBUILDS for `dystopian-repo` signature sync.
+- - `on_pkgbuild_version_bump.yml` is the primary publish workflow: it only proceeds after verifying the bootstrap release contains `dystopian-repo`, `dystopian-keyring`, and the repo database, then downloads a built package from `Dystopian-PKGBUILDS`, signs it, updates the repo database, and notifies PKGBUILDS for `dystopian-repo` signature sync.
 - `cleanup_repo.yml` is the maintenance workflow that deletes cancelled, failed, and older successful workflow artifacts.
 
 ## Commands
