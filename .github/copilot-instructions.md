@@ -25,6 +25,7 @@ No local build, test, or lint scripts are defined in the tracked files. The repo
 - Use `actions/create-github-app-token@v3` with the `DYSTOPIANBOT_*` secrets when a GitHub App token is needed.
 - Use `fetch-depth: 0` on checkouts when workflows need full history or release/build context.
 - Package artifacts and repository database files are staged in `x86_64/`.
+- Keep Mermaid diagrams in sync with their matching workflow YAML files.
 - Bash steps use strict mode (`set -euo pipefail`) and should fail fast on missing inputs or secrets.
 - Follow the existing remote-action pattern for shared helpers: `DCx7C5/actions/*@v1` instead of copying helper actions into this repo.
 - Preserve the existing secret fallback patterns where they already exist, especially for GPG key and passphrase handling.
