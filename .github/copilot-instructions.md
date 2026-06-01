@@ -24,6 +24,8 @@ No local build, test, or lint scripts are defined in the tracked files. The repo
 - Keep workflow job names, step ids, and output names stable; other workflows depend on them.
 - Use `actions/create-github-app-token@v3` with the `DYSTOPIANBOT_*` secrets when a GitHub App token is needed.
 - Use `fetch-depth: 0` on checkouts when workflows need full history or release/build context.
+- Prefer `DCx7C5/actions/*@v1` first, then built-in GitHub actions, and use third-party actions only when no preferred equivalent exists.
+- Keep to the usual action set already used in this repo unless a new action is strictly necessary.
 - Package artifacts and repository database files are staged in `x86_64/`.
 - Keep Mermaid diagrams in sync with their matching workflow YAML files.
 - Bash steps use strict mode (`set -euo pipefail`) and should fail fast on missing inputs or secrets.
