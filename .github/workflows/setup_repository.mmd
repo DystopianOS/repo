@@ -1,4 +1,3 @@
-```mermaid
 flowchart TD
   A[workflow_call / workflow_dispatch] --> B[build-keyring]
   A --> C[detect-packages]
@@ -13,5 +12,3 @@ flowchart TD
   H --> I[import GPG key]
   I --> J[build AUR database]
   J --> K[push updated database]
-```
-

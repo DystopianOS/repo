@@ -1,4 +1,3 @@
-```mermaid
 flowchart TD
   A[workflow_dispatch] --> B[detect-packages]
   B --> C{packages in x86_64?}
@@ -10,5 +9,3 @@ flowchart TD
   F --> G[create/update repo database]
   G --> H[sign with GPG key]
   H --> I[push repo artifacts]
-```
-
