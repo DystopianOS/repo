@@ -1,0 +1,16 @@
+```mermaid
+flowchart TD
+  A[repository_dispatch pkgbuild-built] --> B[resolve payload]
+  C[workflow_dispatch] --> B
+
+  B --> D[create GitHub App token]
+  D --> E[checkout repo]
+  E --> F[verify bootstrap release has dystopian-repo, dystopian-keyring, and db]
+  F --> G[resolve package asset from PKGBUILDS release]
+  G --> H[download package into x86_64]
+  H --> I[import GPG packager key]
+  I --> J[sign package and repo-add into db]
+  J --> K[commit and push x86_64 artifacts]
+  K --> L{package is dystopian-repo?}
+  L -- yes --> M[notify PKGBUILDS with repo signature URL]
+```

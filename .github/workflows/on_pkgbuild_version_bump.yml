@@ -1,32 +1,62 @@
-name: Build Sign and Release Package
+name: Sync Built Package Into Repo DB
 
 on:
   repository_dispatch:
     types:
-      - pkgbuild-release-request
+      - pkgbuild-built
   workflow_dispatch:
     inputs:
       package:
         description: Package name from Dystopian-PKGBUILDs
         required: true
+        type: string
       version:
         description: Package version (pkgver-pkgrel)
         required: false
+        type: string
       channel:
-        description: Release channel tag (e.g. core, extra)
+        description: Repository channel (e.g. core, extra)
         required: false
         default: core
+        type: string
       source_sha:
         description: Optional PKGBUILDS commit SHA
         required: false
+        type: string
+      trigger:
+        description: Trigger reason
+        required: false
+        default: pkgbuild-built
+        type: string
+      aur_db_repository:
+        description: Target repository (owner/repo)
+        required: false
+        default: DystopianOS/repo
+        type: string
+      package_url:
+        description: Optional direct package asset URL from Dystopian-PKGBUILDS
+        required: false
+        type: string
+      package_sha256:
+        description: Optional SHA256 for package asset integrity validation
+        required: false
+        type: string
+      pkgbuilds_signature_dispatch_type:
+        description: PKGBUILDS repository_dispatch event for a freshly signed dystopian-repo package
+        required: false
+        default: repo-signature-updated
+        type: string
 
 permissions:
   contents: write
   actions: write
 
 jobs:
-  build-sign-release:
+  sync-repo-db:
     runs-on: ubuntu-latest
+    concurrency:
+      group: "sync-repo-db-${{ github.ref_name }}"
+      cancel-in-progress: false
     steps:
       - name: Resolve payload
         id: payload
@@ -37,12 +67,40 @@ jobs:
           ver="$(jq -r '.client_payload.version // .inputs.version // empty' "$GITHUB_EVENT_PATH")"
           channel="$(jq -r '.client_payload.channel // .inputs.channel // "core"' "$GITHUB_EVENT_PATH")"
           source_sha="$(jq -r '.client_payload.source_sha // .inputs.source_sha // empty' "$GITHUB_EVENT_PATH")"
+          trigger="$(jq -r '.client_payload.trigger // .inputs.trigger // "pkgbuild-built"' "$GITHUB_EVENT_PATH")"
+          aur_repo="$(jq -r '.client_payload.aur_db_repository // .inputs.aur_db_repository // "DystopianOS/repo"' "$GITHUB_EVENT_PATH")"
+          pkg_url="$(jq -r '.client_payload.package_url // .inputs.package_url // empty' "$GITHUB_EVENT_PATH")"
+          pkg_sha256="$(jq -r '.client_payload.package_sha256 // .inputs.package_sha256 // empty' "$GITHUB_EVENT_PATH")"
+          pkgbuilds_sig_dispatch="$(jq -r '.client_payload.pkgbuilds_signature_dispatch_type // .inputs.pkgbuilds_signature_dispatch_type // "repo-signature-updated"' "$GITHUB_EVENT_PATH")"
 
           [[ -n "$pkg" ]] || { echo "::error::package is required"; exit 1; }
+          [[ "$pkg" =~ ^[a-z0-9@._+-]+$ ]] || { echo "::error::Invalid package name: $pkg"; exit 1; }
+          if [[ -n "$ver" ]]; then
+            [[ "$ver" =~ ^[A-Za-z0-9._:+-]+$ ]] || { echo "::error::Invalid version: $ver"; exit 1; }
+          fi
+          [[ "$channel" =~ ^[a-z0-9._+-]+$ ]] || { echo "::error::Invalid channel: $channel"; exit 1; }
+          [[ "$trigger" =~ ^[a-z0-9._+-]+$ ]] || { echo "::error::Invalid trigger: $trigger"; exit 1; }
+          [[ "$aur_repo" == "DystopianOS/repo" ]] || { echo "::error::aur_db_repository must be DystopianOS/repo"; exit 1; }
+          if [[ -n "$pkg_url" ]]; then
+            [[ "$pkg_url" =~ ^https://github\.com/DystopianOS/Dystopian-PKGBUILDS/releases/download/.+\.pkg\.tar\.zst$ ]] || {
+              echo "::error::package_url must point to DystopianOS/Dystopian-PKGBUILDS release assets."
+              exit 1
+            }
+          fi
+          [[ "$pkgbuilds_sig_dispatch" =~ ^[a-z0-9._+-]+$ ]] || {
+            echo "::error::Invalid PKGBUILDS signature dispatch type: $pkgbuilds_sig_dispatch"
+            exit 1
+          }
+
           echo "package=$pkg" >> "$GITHUB_OUTPUT"
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "trigger=$trigger" >> "$GITHUB_OUTPUT"
+          echo "aur_db_repository=$aur_repo" >> "$GITHUB_OUTPUT"
+          echo "package_url=$pkg_url" >> "$GITHUB_OUTPUT"
+          echo "package_sha256=$pkg_sha256" >> "$GITHUB_OUTPUT"
+          echo "pkgbuilds_signature_dispatch_type=$pkgbuilds_sig_dispatch" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App Token
         id: app_token
@@ -51,27 +109,101 @@ jobs:
           client-id: ${{ secrets.DYSTOPIANBOT_CLIENT_ID }}
           private-key: ${{ secrets.DYSTOPIANBOT_KEY }}
           owner: DystopianOS
+          repositories: |
+            repo
+            Dystopian-PKGBUILDS
 
-      - name: Checkout release repository
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ steps.app_token.outputs.token }}
 
-      - name: Clone PKGBUILDS source repository
+      - name: Verify bootstrap release exists
         shell: bash
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           set -euo pipefail
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/DystopianOS/Dystopian-PKGBUILDs.git" _pkgbuilds
-          if [[ -n "${{ steps.payload.outputs.source_sha }}" ]]; then
-            git -C _pkgbuilds checkout "${{ steps.payload.outputs.source_sha }}"
+          release_json="$(GH_TOKEN="$GH_TOKEN" gh api "repos/DystopianOS/repo/releases/latest")"
+          mapfile -t assets < <(jq -r '.assets[].name' <<< "$release_json")
+
+          has_keyring=false
+          has_repo=false
+          has_db=false
+          for asset in "${assets[@]}"; do
+            case "$asset" in
+              dystopian-keyring-*.pkg.tar.zst) has_keyring=true ;;
+              dystopian-repo-*.pkg.tar.zst) has_repo=true ;;
+              *.db.tar.gz) has_db=true ;;
+            esac
+          done
+
+          if [[ "$has_keyring" != true || "$has_repo" != true || "$has_db" != true ]]; then
+            echo "::error::Bootstrap release is incomplete; require dystopian-keyring, dystopian-repo, and repo database assets before syncing packages."
+            exit 1
           fi
-          [[ -f "_pkgbuilds/${{ steps.payload.outputs.package }}/PKGBUILD" ]] || {
-            echo "::error::PKGBUILD not found for package ${{ steps.payload.outputs.package }}"
+
+      - name: Resolve package asset URL
+        id: asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          pkg="${{ steps.payload.outputs.package }}"
+          ver="${{ steps.payload.outputs.version }}"
+          pkg_url="${{ steps.payload.outputs.package_url }}"
+
+          if [[ -z "$pkg_url" ]]; then
+            [[ -n "$ver" ]] || { echo "::error::version is required when package_url is not provided"; exit 1; }
+            release_json="$(GH_TOKEN="$GH_TOKEN" gh api "repos/DystopianOS/Dystopian-PKGBUILDS/releases?per_page=100")"
+            pkg_url="$(jq -r \
+              --arg pkg "$pkg" \
+              --arg ver "$ver" \
+              '[.[] | .assets[]? | select(.name | startswith($pkg + "-" + $ver + "-") and endswith(".pkg.tar.zst")) | .browser_download_url][0] // empty' \
+              <<< "$release_json")"
+            [[ -n "$pkg_url" ]] || {
+              echo "::error::No release asset found for ${pkg}-${ver} in DystopianOS/Dystopian-PKGBUILDS."
+              exit 1
+            }
+          fi
+
+          [[ "$pkg_url" =~ ^https://github\.com/DystopianOS/Dystopian-PKGBUILDS/releases/download/.+\.pkg\.tar\.zst$ ]] || {
+            echo "::error::Resolved package URL is not from DystopianOS/Dystopian-PKGBUILDS releases."
             exit 1
           }
+
+          echo "package_url=$pkg_url" >> "$GITHUB_OUTPUT"
+
+      - name: Download built package artifact
+        id: download
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p x86_64
+          pkg_url="${{ steps.asset.outputs.package_url }}"
+          pkg_name="${pkg_url##*/}"
+          [[ "$pkg_name" == *.pkg.tar.zst ]] || { echo "::error::Invalid package asset name: $pkg_name"; exit 1; }
+          if [[ -n "${{ steps.payload.outputs.version }}" ]]; then
+            [[ "$pkg_name" == "${{ steps.payload.outputs.package }}-${{ steps.payload.outputs.version }}-"* ]] || {
+              echo "::error::Package asset does not match package/version payload."
+              exit 1
+            }
+          else
+            [[ "$pkg_name" == "${{ steps.payload.outputs.package }}-"* ]] || {
+              echo "::error::Package asset does not match package payload."
+              exit 1
+            }
+          fi
+
+          curl --fail --location --silent --show-error "$pkg_url" --output "x86_64/$pkg_name"
+
+          pkg_sha256="${{ steps.payload.outputs.package_sha256 }}"
+          if [[ -n "$pkg_sha256" ]]; then
+            printf '%s  %s\n' "$pkg_sha256" "x86_64/$pkg_name" | sha256sum --check --status
+          fi
+          echo "package_file=x86_64/$pkg_name" >> "$GITHUB_OUTPUT"
 
       - name: Import GPG packager key
         shell: bash
@@ -80,16 +212,16 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/.gnupg"
           chmod 700 "$GITHUB_WORKSPACE/.gnupg"
           export GNUPGHOME="$GITHUB_WORKSPACE/.gnupg"
-          printf '%s' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          printf '%s' "${{ secrets.GPG_PACKAGER_PRIVATE_KEY }}" | gpg --batch --import
           key_id="${{ secrets.GPG_PACKAGER_KEY_ID }}"
-          if [[ -z "$key_id" ]]; then
-            key_id="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/ {print $5; exit}')"
-          fi
-          [[ -n "$key_id" ]] || { echo "::error::No secret key available for signing"; exit 1; }
+          [[ -n "$key_id" ]] || { echo "::error::GPG_PACKAGER_KEY_ID is required"; exit 1; }
           echo "GPG_KEY_ID=$key_id" >> "$GITHUB_ENV"
 
-      - name: Build and sign package in Arch container
+      - name: Sign package and update repo database
         uses: DCx7C5/actions/arch-run-cmd@v1
+        env:
+          AUR_DB_NAME: ${{ secrets.AUR_DB_NAME }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PACKAGER_PASSPHRASE }}
         with:
           run-with-sudo: "true"
           enable-ccache: "true"
@@ -100,53 +232,53 @@ jobs:
           preset-passphrase-cache: "true"
           command: |
             set -euo pipefail
-            cd "_pkgbuilds/${{ steps.payload.outputs.package }}"
-            makepkg --syncdeps --cleanbuild --noconfirm --sign --key "${GPG_KEY_ID}"
+            cd "$GITHUB_WORKSPACE/x86_64"
+            shopt -s nullglob
+            pkgs=( *.pkg.tar.zst )
+            (( ${#pkgs[@]} > 0 )) || { echo "::error::No package artifacts found in x86_64."; exit 1; }
 
-      - name: Collect release assets
-        id: assets
+            for pkg in "${pkgs[@]}"; do
+              gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
+                --detach-sign --no-armor "$pkg"
+            done
+
+            db_name="${AUR_DB_NAME:?AUR_DB_NAME secret is required}"
+            repo-add -s -k "$GPG_KEY_ID" "${db_name}.db.tar.gz" "${pkgs[@]}"
+            [[ -f "${db_name}.db.tar.gz.sig" ]] || { echo "::error::Missing ${db_name}.db.tar.gz.sig"; exit 1; }
+            [[ -f "${db_name}.files.tar.gz.sig" ]] || { echo "::error::Missing ${db_name}.files.tar.gz.sig"; exit 1; }
+
+      - name: Commit and push repository database updates
         shell: bash
         run: |
           set -euo pipefail
-          pkg_dir="_pkgbuilds/${{ steps.payload.outputs.package }}"
-          mkdir -p release-assets
-          shopt -s nullglob
-          files=(
-            "$pkg_dir"/*.pkg.tar.zst
-            "$pkg_dir"/*.pkg.tar.zst.sig
-            "$pkg_dir"/*.src.tar.gz
-            "$pkg_dir"/*.src.tar.gz.sig
-          )
-          if (( ${#files[@]} == 0 )); then
-            echo "::error::No build artifacts found in $pkg_dir"
-            exit 1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add x86_64/
+          if git diff --cached --quiet; then
+            echo "::notice::No repository database changes to commit."
+            exit 0
           fi
-          cp -f "${files[@]}" release-assets/
-
-          version="${{ steps.payload.outputs.version }}"
-          if [[ -z "$version" ]]; then
-            pkgver="$(awk -F= '/^pkgver=/{print $2; exit}' "$pkg_dir/PKGBUILD")"
-            pkgrel="$(awk -F= '/^pkgrel=/{print $2; exit}' "$pkg_dir/PKGBUILD")"
-            version="${pkgver}-${pkgrel}"
+          commit_version="${{ steps.payload.outputs.version }}"
+          if [[ -n "$commit_version" ]]; then
+            git commit -m "repo: sync ${{ steps.payload.outputs.package }} ${commit_version}"
+          else
+            git commit -m "repo: sync ${{ steps.payload.outputs.package }}"
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=${{ steps.payload.outputs.channel }}/${{ steps.payload.outputs.package }}/${version}" >> "$GITHUB_OUTPUT"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
-      - name: Create channel package release
-        uses: DCx7C5/actions/gh-create-release@v1
-        with:
-          gh-token: ${{ steps.app_token.outputs.token }}
-          release-tag: ${{ steps.assets.outputs.tag }}
-          release-name: ${{ steps.payload.outputs.channel }}/${{ steps.payload.outputs.package }} ${{ steps.assets.outputs.version }}
-          generate-notes: "false"
-          release-body: |
-            Channel: `${{ steps.payload.outputs.channel }}`
-            Package: `${{ steps.payload.outputs.package }}`
-            Version: `${{ steps.assets.outputs.version }}`
-            Source SHA: `${{ steps.payload.outputs.source_sha }}`
-          assets: |
-            release-assets/*.pkg.tar.zst
-            release-assets/*.pkg.tar.zst.sig
-            release-assets/*.src.tar.gz
-            release-assets/*.src.tar.gz.sig
-          fail-if-exists: "false"
+      - name: Notify PKGBUILDS about dystopian-repo signature
+        if: ${{ steps.payload.outputs.package == 'dystopian-repo' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          pkg_name="${{ steps.download.outputs.package_file }}"
+          sig_name="${pkg_name}.sig"
+          sig_url="https://raw.githubusercontent.com/DystopianOS/repo/${GITHUB_REF_NAME}/${sig_name}"
+          GH_TOKEN="$GH_TOKEN" gh api -X POST "repos/DystopianOS/Dystopian-PKGBUILDS/dispatches" \
+            -f event_type="${{ steps.payload.outputs.pkgbuilds_signature_dispatch_type }}" \
+            -f client_payload[package]=dystopian-repo \
+            -f client_payload[signature_url]="$sig_url" \
+            -f client_payload[source_repo]=DystopianOS/repo \
+            -f client_payload[source_sha]="${GITHUB_SHA}"
